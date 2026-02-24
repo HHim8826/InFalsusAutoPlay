@@ -1,6 +1,7 @@
 ﻿name: Build and Release
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -26,7 +27,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Publish
-        run: dotnet publish -c Release -r ${{ matrix.rid }} --self-contained false -p:PublishSingleFile=true -o ./publish/${{ matrix.rid }}
+        run: dotnet publish In_Falsus_auto_play.csproj -c Release -r ${{ matrix.rid }} --self-contained false -p:PublishSingleFile=true -o ./publish/${{ matrix.rid }}
 
       - name: Archive Release
         run: Compress-Archive -Path ./publish/${{ matrix.rid }}/* -DestinationPath In_Falsus_auto_play_${{ matrix.rid }}${{ matrix.ext }}
