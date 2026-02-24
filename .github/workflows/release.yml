@@ -8,13 +8,19 @@ on:
 
 jobs:
   build:
-    name: Build for ${{ matrix.rid }}
-    runs-on: ${{ matrix.os }}
+    name: Build ${{ matrix.rid }} - ${{ matrix.flavor }}
+    runs-on: windows-latest
     strategy:
       matrix:
         include:
-          - os: windows-latest
-            rid: win-x64
+          - rid: win-x64
+            flavor: tiny
+            ext: .zip
+          - rid: win-x64
+            flavor: runtime
+            ext: .zip
+          - rid: win-x64
+            flavor: selfcontained
             ext: .zip
 
     steps:
@@ -26,17 +32,56 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Publish
-        run: dotnet publish In_Falsus_auto_play.csproj -c Release -r ${{ matrix.rid }} --self-contained false -p:PublishSingleFile=true -o ./publish/${{ matrix.rid }}
+      - name: Publish (tiny)
+        if: matrix.flavor == 'tiny'
+        run: >
+          dotnet publish In_Falsus_auto_play.csproj
+          -c Release -r ${{ matrix.rid }}
+          --self-contained false
+          -p:PublishSingleFile=true
+          -p:PublishTrimmed=true
+          -p:TrimMode=partial
+          -p:DebugType=None -p:DebugSymbols=false
+          -o ./publish/${{ matrix.rid }}/${{ matrix.flavor }}
+
+      - name: Publish (runtime-dependent)
+        if: matrix.flavor == 'runtime'
+        run: >
+          dotnet publish In_Falsus_auto_play.csproj
+          -c Release -r ${{ matrix.rid }}
+          --self-contained false
+          -p:PublishSingleFile=true
+          -p:DebugType=None -p:DebugSymbols=false
+          -o ./publish/${{ matrix.rid }}/${{ matrix.flavor }}
+
+      - name: Publish (self-contained)
+        if: matrix.flavor == 'selfcontained'
+        run: >
+          dotnet publish In_Falsus_auto_play.csproj
+          -c Release -r ${{ matrix.rid }}
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:DebugType=None -p:DebugSymbols=false
+          -o ./publish/${{ matrix.rid }}/${{ matrix.flavor }}
+
+      - name: Inspect publish output
+        run: >
+          powershell -Command
+          "Get-ChildItem ./publish/${{ matrix.rid }}/${{ matrix.flavor }} -Recurse |
+           Sort-Object Length -Descending |
+           Select-Object -First 20 FullName,Length"
 
       - name: Archive Release
-        run: Compress-Archive -Path ./publish/${{ matrix.rid }}/* -DestinationPath In_Falsus_auto_play_${{ matrix.rid }}${{ matrix.ext }}
+        run: >
+          Compress-Archive
+          -Path ./publish/${{ matrix.rid }}/${{ matrix.flavor }}/*
+          -DestinationPath In_Falsus_auto_play_${{ matrix.rid }}_${{ matrix.flavor }}${{ matrix.ext }}
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: In_Falsus_auto_play_${{ matrix.rid }}
-          path: In_Falsus_auto_play_${{ matrix.rid }}${{ matrix.ext }}
+          name: In_Falsus_auto_play_${{ matrix.rid }}_${{ matrix.flavor }}
+          path: In_Falsus_auto_play_${{ matrix.rid }}_${{ matrix.flavor }}${{ matrix.ext }}
 
   release:
     name: Create GitHub Release
