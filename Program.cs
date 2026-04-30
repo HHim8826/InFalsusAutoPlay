@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Reflection.Emit;
@@ -11,10 +11,10 @@ namespace In_Falsus_auto_play;
 
 /// <summary>
 /// Auto-Play Patcher for a heavily obfuscated Unity rhythm game.
-/// Targets class $e.$ad and patches three core judgment methods:
-///   - $Qt (Flick/Slide notes)
-///   - $st (SkyArea/Follow notes — lowercase s)
-///   - $St (Tap & Hold notes — uppercase S)
+/// Targets class $E.$Sd and patches three core judgment methods:
+///   - $SU (Flick/Slide notes)
+///   - $uU (SkyArea/Follow notes)
+///   - $UU (Tap & Hold notes)
 /// </summary>
 internal static class Program
 {
@@ -23,28 +23,28 @@ internal static class Program
 	private const string DefaultInputDll = "Game.dll";
 
 	// Obfuscated identifiers — single source of truth
-	private const string NS_e = "$e";
-	private const string CLS_ad = "$ad";
-	private const string NS_A = "$A";
-	private const string TYPE_X = "$X";
-	private const string TYPE_ed = "$ed";
-	private const string TYPE_Fd = "$Fd";
-	private const string TYPE_XC = "$XC";
-	private const string TYPE_aA = "$aA";
+	private const string NS_e = "$E";
+	private const string CLS_ad = "$Sd";
+	private const string NS_A = "$b";
+	private const string TYPE_X = "$BA";
+	private const string TYPE_ed = "$wd";
+	private const string TYPE_Xd = "$Xd";  // sky follow tracking struct (was $Fd in V1.0)
+	private const string TYPE_XC = "$qd";
+	private const string TYPE_aA = "$eA";
 
-	private const string FLD_md = "$md";  // float64 — time difference
-	private const string FLD_pd = "$pd";  // int32 — lane start
-	private const string FLD_Pd = "$Pd";  // int32 — lane end
-	private const string FLD_Id = "$Id";  // $aA — note type
-	private const string FLD_px = "$px";  // bool — physical key pressed
-	private const string FLD_Vx = "$Vx";  // bool — internal hold tracking
-	private const string FLD_vx = "$vx";  // bool — internal hold tracking
-	private const string FLD_fW = "$fW";  // $ed[] — key state array
-	private const string FLD_SW = "$SW";  // $XC — input state struct
-	private const string FLD_od = "$od";  // bool — note done flag
-	private const string FLD_hd = "$hd";  // int64 — note id
+	private const string FLD_md = "$iD";  // float64 — time difference
+	private const string FLD_pd = "$lD";  // int32 — lane start
+	private const string FLD_Pd = "$LD";  // int32 — lane end
+	private const string FLD_Id = "$ED";  // $eA — note type
+	private const string FLD_px = "$JAA"; // bool — physical key pressed
+	private const string FLD_PAA = "$PAA"; // bool — was $vx in V1.0 (in $Xd)
+	private const string FLD_qAA = "$qAA"; // bool — was $Vx in V1.0 (in $Xd)
+	private const string FLD_fW = "$zZ";  // $wd[] — key state array
+	private const string FLD_SW = "$MaA"; // $qd — input state struct
+	private const string FLD_od = "$kD";  // bool — note done flag
+	private const string FLD_hd = "$dD";  // int64 — note id
 
-	private const int NOTE_TYPE_HOLD = 2; // $aA.$hD
+	private const int NOTE_TYPE_HOLD = 2; // $eA.$De
 
 	static void Main(string[] args)
 	{
@@ -63,7 +63,7 @@ internal static class Program
 		Console.WriteLine($"[*] Loading {inputPath} …");
 		using var module = ModuleDefMD.Load(inputPath);
 
-		// Locate the core class $e.$ad
+		// Locate the core class $E.$Sd
 		TypeDef adClass = module.Find($"{NS_e}.{CLS_ad}", isReflectionName: true)
 			?? throw new Exception($"Class {NS_e}.{CLS_ad} not found!");
 
@@ -72,8 +72,8 @@ internal static class Program
 		// Resolve external type refs we'll need
 		TypeDef typeX = FindTypeDef(module, NS_A, TYPE_X);
 		TypeDef typeEd = FindTypeDef(module, NS_e, TYPE_ed);
-		TypeDef typeFd = FindTypeDef(module, NS_e, TYPE_Fd);
 		TypeDef typeXC = FindTypeDef(module, NS_e, TYPE_XC);
+		TypeDef typeXd = FindTypeDef(module, NS_e, TYPE_Xd);
 
 		// Field references
 		FieldDef fld_md = FindField(typeX, FLD_md);
@@ -82,24 +82,22 @@ internal static class Program
 		FieldDef fld_Id = FindField(typeX, FLD_Id);
 		FieldDef fld_od = FindField(typeX, FLD_od);
 		FieldDef fld_px = FindField(typeEd, FLD_px);
-		FieldDef fld_Vx = FindField(typeFd, FLD_Vx);
-		FieldDef fld_vx = FindField(typeFd, FLD_vx);
 		FieldDef fld_fW = FindField(typeXC, FLD_fW);
 		FieldDef fld_SW = FindField(adClass, FLD_SW);
+		FieldDef fld_PAA = FindField(typeXd, FLD_PAA);
+		FieldDef fld_qAA = FindField(typeXd, FLD_qAA);
 
-		// System.Math::Abs(float64) — reuse the reference already present in the game's IL
-		// Do NOT use module.Import(typeof(Math)...) as that imports from System.Private.CoreLib
-		// while the game uses [mscorlib]System.Math.
+		// System.Math::Abs(float64)
 		var mathAbs = FindExistingMathAbs(adClass)
-			?? throw new Exception("Cannot find existing System.Math::Abs(float64) reference in $ad methods!");
+			?? throw new Exception("Cannot find existing System.Math::Abs(float64) reference in $Sd methods!");
 
-		// ─── Patch A: $Qt — Flick/Slide auto-perfect ───
+		// ─── Patch A: $SU — Flick/Slide auto-perfect ───
 		PatchQt(adClass, fld_md, mathAbs);
 
-		// ─── Patch B: $st — SkyArea/Follow auto-perfect ───
-		PatchSt_lower(adClass, fld_Vx, fld_vx);
+		// ─── Patch B: $uU — SkyArea/Follow Hold auto-perfect ───
+		PatchUU_lower(adClass, fld_qAA, fld_PAA);
 
-		// ─── Patch C: $St — Tap & Hold auto-perfect + visuals ───
+		// ─── Patch C: $UU — Tap & Hold auto-perfect + visuals ───
 		PatchSt_upper(adClass, module, fld_md, fld_pd, fld_Pd, fld_Id, fld_px, fld_fW, fld_SW, fld_od, mathAbs);
 
 		Console.WriteLine($"\n[*] Writing patched assembly to {outputPath} …");
@@ -108,18 +106,18 @@ internal static class Program
 	}
 
 	// ═══════════════════════════════════════════════════════
-	//  PATCH A — $Qt : Flick / Slide notes
+	//  PATCH A — $SU : Flick / Slide notes
 	// ═══════════════════════════════════════════════════════
 	/// <summary>
 	/// Insert at index 0:
-	///   ldarg.2; ldfld $md; call Math.Abs; ldc.r8 20; bgt.s ORIGINAL;
-	///   ldarg.2; ldc.r8 0.0; stfld $md;
+	///   ldarg.2; ldfld $iD; call Math.Abs; ldc.r8 20; bgt.s ORIGINAL;
+	///   ldarg.2; ldc.r8 0.0; stfld $iD;
 	///   ldc.i4.1; starg.s 3;
 	///   // fall through to ORIGINAL
 	/// </summary>
 	static void PatchQt(TypeDef adClass, FieldDef fld_md, IMethod mathAbs)
 	{
-		var method = FindMethod(adClass, "$Qt");
+		var method = FindMethod(adClass, "$SU");
 		var body = method.Body;
 		var il = body.Instructions;
 		Console.WriteLine($"\n[PATCH A] {method.Name} — Flick/Slide auto-perfect");
@@ -152,18 +150,18 @@ internal static class Program
 	}
 
 	// ═══════════════════════════════════════════════════════
-	//  PATCH B — $st (lowercase) : SkyArea / Follow notes
+	//  PATCH B — $uU (was $st) : SkyArea / Follow notes
 	// ═══════════════════════════════════════════════════════
 	/// <summary>
-	/// Modify specific instructions IN-PLACE to force $Vx and $vx to true:
-	///   For $Vx: replace the ldloc.s (flag variable) right before stfld with ldc.i4.1
-	///   For $vx: replace the two ldloc.s (flag4, flag5) before the 'and' with ldc.i4.1
+	/// Modify specific instructions IN-PLACE to force $qAA (was $Vx) and $PAA (was $vx) to true:
+	///   For $qAA: replace the ldloc.s (flag variable) right before stfld with ldc.i4.1
+	///   For $PAA: replace the two ldloc.s (flag4, flag5) before the 'and' with ldc.i4.1
 	///            so that (true & true) = true → brtrue always takes the TRUE path
-	/// IMPORTANT: Skip cleanup code where $Vx = false (ldc.i4.0 before stfld)
+	/// IMPORTANT: Skip cleanup code where $qAA = false (ldc.i4.0 before stfld)
 	/// </summary>
-	static void PatchSt_lower(TypeDef adClass, FieldDef fld_Vx, FieldDef fld_vx)
+	static void PatchUU_lower(TypeDef adClass, FieldDef fld_qAA, FieldDef fld_PAA)
 	{
-		var method = FindMethod(adClass, "$st");
+		var method = FindMethod(adClass, "$uU");
 		var body = method.Body;
 		var il = body.Instructions;
 		Console.WriteLine($"\n[PATCH B] {method.Name} — SkyArea/Follow auto-perfect");
@@ -176,12 +174,12 @@ internal static class Program
 			var fld = il[i].Operand as IField;
 			if (fld == null) continue;
 
-			if (FieldMatches(fld, fld_Vx))
+			if (FieldMatches(fld, fld_qAA))
 			{
-				// Skip cleanup code: $Vx = false (ldc.i4.0 before stfld)
+				// Skip cleanup code: $qAA = false (ldc.i4.0 before stfld)
 				if (i > 0 && il[i - 1].OpCode == OpCodes.Ldc_I4_0)
 				{
-					Console.WriteLine($"  [B] Skipped cleanup stfld $Vx at index {i} (constant false)");
+					Console.WriteLine($"  [B] Skipped cleanup stfld $qAA at index {i} (constant false)");
 					continue;
 				}
 				// Replace the ldloc.s (flag variable) right before stfld with ldc.i4.1 IN-PLACE
@@ -190,15 +188,15 @@ internal static class Program
 					il[i - 1].OpCode = OpCodes.Ldc_I4_1;
 					il[i - 1].Operand = null;
 					patchCount++;
-					Console.WriteLine($"  [B] Forced $Vx = true at index {i} (replaced ldloc → ldc.i4.1)");
+					Console.WriteLine($"  [B] Forced $qAA = true at index {i} (replaced ldloc → ldc.i4.1)");
 				}
 			}
-			else if (FieldMatches(fld, fld_vx))
+			else if (FieldMatches(fld, fld_PAA))
 			{
-				// For $vx, scan backwards to find the 'and' instruction with two ldloc.s before it.
+				// For $PAA, scan backwards to find the 'and' instruction with two ldloc.s before it.
 				// These load flag4 and flag5 which feed into (flag4 && flag5).
 				// Replacing both with ldc.i4.1 makes the AND always true,
-				// so brtrue always takes the TRUE path → $vx = true.
+				// so brtrue always takes the TRUE path → $PAA = true.
 				bool found = false;
 				for (int j = i - 1; j >= Math.Max(0, i - 40); j--)
 				{
@@ -213,12 +211,12 @@ internal static class Program
 						il[j - 1].Operand = null;
 						patchCount++;
 						found = true;
-						Console.WriteLine($"  [B] Forced $vx = true at index {i} (replaced 2x ldloc before 'and' → ldc.i4.1)");
+						Console.WriteLine($"  [B] Forced $PAA = true at index {i} (replaced 2x ldloc before 'and' → ldc.i4.1)");
 						break;
 					}
 				}
 				if (!found)
-					Console.WriteLine($"  [B] WARNING: Could not find 'and' pattern for stfld $vx at index {i}");
+					Console.WriteLine($"  [B] WARNING: Could not find 'and' pattern for stfld $PAA at index {i}");
 			}
 		}
 
@@ -227,15 +225,15 @@ internal static class Program
 	}
 
 	// ═══════════════════════════════════════════════════════
-	//  PATCH C — $St (uppercase) : Tap & Hold notes
+	//  PATCH C — $UU : Tap & Hold notes
 	// ═══════════════════════════════════════════════════════
 	/// <summary>
 	/// 4 sub-patches:
 	///   C1 — Auto-tap head (inject at top, after local init)
 	///   C2 — Visual glow for hold (inject in for-loop)
-	///   C3 — Bypass physical key check (replace ldfld $px → pop+ldc.i4.1)
+	///   C3 — Bypass physical key check (replace ldfld $JAA → pop+ldc.i4.1)
 	///   C4 — Hold tail perfect (force Math.Abs result → 0.0)
-	///   C5 — Turn off glow when note ends ($px = false)
+	///   C5 — Turn off glow when note ends ($JAA = false)
 	/// </summary>
 	static void PatchSt_upper(
 		TypeDef adClass, ModuleDef module,
@@ -243,7 +241,7 @@ internal static class Program
 		FieldDef fld_Id, FieldDef fld_px, FieldDef fld_fW,
 		FieldDef fld_SW, FieldDef fld_od, IMethod mathAbs)
 	{
-		var method = FindMethod(adClass, "$St");
+		var method = FindMethod(adClass, "$UU");
 		var body = method.Body;
 		var il = body.Instructions;
 		Console.WriteLine($"\n[PATCH C] {method.Name} — Tap & Hold auto-perfect + visuals");
@@ -251,9 +249,9 @@ internal static class Program
 
 		// ── C1: Auto-tap head ──────────────────────────────
 		// After "stloc.2" (num2 = -1), insert:
-		//   ldarg.2; ldfld $md; call Math.Abs; ldc.r8 10; bgt.s SKIP;
+		//   ldarg.2; ldfld $iD; call Math.Abs; ldc.r8 10; bgt.s SKIP;
 		//   ldc.i4.1; stloc.1;          // flag = true
-		//   ldarg.2; ldfld $pd; stloc.2 // num2 = note.$pd
+		//   ldarg.2; ldfld $lD; stloc.2 // num2 = note.$lD
 		// SKIP: ...
 		{
 			int insertIdx = -1;
@@ -293,29 +291,29 @@ internal static class Program
 		}
 
 		// ── C2: Visual glow ON for hold notes ──────────────
-		// In the for-loop over lanes, find the first access to $fW[V_4].$Ox
+		// In the for-loop over lanes, find the first access to $zZ[V_4].$Ox
 		// and inject BEFORE it:
-		//   ldarg.2; ldfld $Id; ldc.i4.2; bne.un.s SKIP;
-		//   ldarg.2; ldfld $md; ldc.r8 0.0; bgt.un.s SKIP;
-		//   ldarg.0; ldflda $SW; ldfld $fW; ldloc.s V_4; ldelema $ed;
-		//   ldc.i4.1; stfld $px;
+		//   ldarg.2; ldfld $ED; ldc.i4.2; bne.un.s SKIP;
+		//   ldarg.2; ldfld $iD; ldc.r8 0.0; bgt.un.s SKIP;
+		//   ldarg.0; ldflda $MaA; ldfld $zZ; ldloc.s V_4; ldelema $wd;
+		//   ldc.i4.1; stfld $JAA;
 		// SKIP: ... (original $Ox access)
 		{
-			// Pattern: look for ldflda $SW ; ldfld $fW ; ldloc.s ; ldelema ; ldfld $Ox
+			// Pattern: look for ldflda $MaA ; ldfld $zZ ; ldloc.s ; ldelema
 			// inside the for-loop. The for-loop starts after the C1 injection area.
-			// We search for the first occurrence of "ldfld $Ox" after $fW access that
+			// We search for the first occurrence of "ldfld $Ox" after $zZ access that
 			// follows our C1 injection.
 			int fwIdx = -1;
 			for (int i = 0; i < il.Count - 4; i++)
 			{
-				// Pattern: ldflda $SW ; ldfld $fW ; ldloc.s ; ldelema
+				// Pattern: ldflda $MaA ; ldfld $zZ ; ldloc.s ; ldelema
 				if (il[i].OpCode == OpCodes.Ldflda && FieldMatches(il[i].Operand as IField, fld_SW) &&
 					il[i + 1].OpCode == OpCodes.Ldfld && FieldMatches(il[i + 1].Operand as IField, fld_fW) &&
 					(il[i + 2].OpCode == OpCodes.Ldloc_S || il[i + 2].OpCode == OpCodes.Ldloc) &&
 					il[i + 3].OpCode == OpCodes.Ldelema)
 				{
 					// Check if this is the first one in the for-loop (after C1 area)
-					// The instruction before ldflda $SW should be ldarg.0
+					// The instruction before ldflda $MaA should be ldarg.0
 					if (i > 0 && il[i - 1].OpCode == OpCodes.Ldarg_0)
 					{
 						fwIdx = i - 1; // ldarg.0 position
@@ -323,16 +321,16 @@ internal static class Program
 					}
 				}
 			}
-			if (fwIdx < 0) throw new Exception("[C2] Cannot find for-loop $fW access pattern");
+			if (fwIdx < 0) throw new Exception("[C2] Cannot find for-loop $zZ access pattern");
 
-			var skipTarget = il[fwIdx]; // the ldarg.0 before ldflda $SW
+			var skipTarget = il[fwIdx]; // the ldarg.0 before ldflda $MaA
 
 			// We need the local variable used for the loop counter (V_4)
 			// It's the operand of ldloc.s at fwIdx+3
 			var loopVar = (il[fwIdx + 3].Operand as Local) ?? throw new Exception("[C2] Cannot determine loop variable");
 
-			// We also need reference to $ed type for ldelema
-			var edTypeRef = (il[fwIdx + 4].Operand as ITypeDefOrRef) ?? throw new Exception("[C2] Cannot determine $ed type for ldelema");
+			// We also need reference to $wd type for ldelema
+			var edTypeRef = (il[fwIdx + 4].Operand as ITypeDefOrRef) ?? throw new Exception("[C2] Cannot determine $wd type for ldelema");
 
 			var c2 = new[]
 			{
@@ -366,11 +364,11 @@ internal static class Program
 		}
 
 		// ── C3: Bypass physical key check ──────────────────
-		// Find: ldfld bool $px followed by brfalse
-		// Replace the entire load chain + ldfld $px with nops + ldc.i4.1
+		// Find: ldfld bool $JAA followed by brfalse
+		// Replace the entire load chain + ldfld $JAA with nops + ldc.i4.1
 		// IMPORTANT: We do NOT insert new instructions. Using il.Insert can corrupt
 		//            nearby ldloc operands (V_4 → V_5 bug). All changes are in-place.
-		// Pattern: ldarg.0; ldflda $SW; ldfld $fW; ldloc.s V; ldelema $ed; ldfld $px; brfalse
+		// Pattern: ldarg.0; ldflda $MaA; ldfld $zZ; ldloc.s V; ldelema $wd; ldfld $JAA; brfalse
 		// After:   nop; nop; nop; nop; nop; ldc.i4.1; brfalse (never branches since 1 != 0)
 		{
 			int patchCount = 0;
@@ -381,8 +379,8 @@ internal static class Program
 					i + 1 < il.Count &&
 					(il[i + 1].OpCode == OpCodes.Brfalse_S || il[i + 1].OpCode == OpCodes.Brfalse))
 				{
-					// Verify the load chain before ldfld $px:
-					// Expected: ldarg.0; ldflda $SW; ldfld $fW; ldloc.s V; ldelema $ed; ldfld $px
+					// Verify the load chain before ldfld $JAA:
+					// Expected: ldarg.0; ldflda $MaA; ldfld $zZ; ldloc.s V; ldelema $wd; ldfld $JAA
 					if (i >= 5 &&
 						il[i - 5].OpCode == OpCodes.Ldarg_0 &&
 						il[i - 4].OpCode == OpCodes.Ldflda && FieldMatches(il[i - 4].Operand as IField, fld_SW) &&
@@ -396,29 +394,29 @@ internal static class Program
 							il[j].OpCode = OpCodes.Nop;
 							il[j].Operand = null;
 						}
-						// Replace ldfld $px with ldc.i4.1 (always true)
+						// Replace ldfld $JAA with ldc.i4.1 (always true)
 						il[i].OpCode = OpCodes.Ldc_I4_1;
 						il[i].Operand = null;
 						// brfalse at i+1 stays unchanged — never branches since 1 != 0
 						patchCount++;
-						Console.WriteLine($"  [C3] Bypassed $px check at index {i} (nop chain + ldc.i4.1, no insert)");
+						Console.WriteLine($"  [C3] Bypassed $JAA check at index {i} (nop chain + ldc.i4.1, no insert)");
 					}
 					else
 					{
-						// Fallback: nop out ldfld $px and brfalse (unconditional fall-through)
-						// pop is needed to consume the value on stack before ldfld $px
+						// Fallback: nop out ldfld $JAA and brfalse (unconditional fall-through)
+						// pop is needed to consume the value on stack before ldfld $JAA
 						il[i].OpCode = OpCodes.Pop;
 						il[i].Operand = null;
 						il[i + 1].OpCode = OpCodes.Nop;
 						il[i + 1].Operand = null;
 						patchCount++;
-						Console.WriteLine($"  [C3] Bypassed $px check at index {i} (fallback: pop + nop)");
+						Console.WriteLine($"  [C3] Bypassed $JAA check at index {i} (fallback: pop + nop)");
 					}
 					break; // Only the first one in this method needs patching
 				}
 			}
 			if (patchCount == 0)
-				Console.WriteLine("  [C3] WARNING: No $px + brfalse pattern found to patch");
+				Console.WriteLine("  [C3] WARNING: No $JAA + brfalse pattern found to patch");
 		}
 
 		// ── C4: Hold tail perfect ──────────────────────────
@@ -433,7 +431,7 @@ internal static class Program
 		// In IL this means replacing the sequence that computes Math.Abs with just loading 0.0
 		{
 			// Find pattern: call Math.Abs(float64) followed by stloc.s
-			// We need the FIRST one inside $St that corresponds to the Tap head section
+			// We need the FIRST one inside $UU that corresponds to the Tap head section
 			int absIdx = FindFirstMathAbsInTapSection(il, mathAbs);
 			if (absIdx >= 0)
 			{
@@ -458,11 +456,11 @@ internal static class Program
 		}
 
 		// ── C5: Turn off glow when note finishes ───────────
-		// Find: stfld bool $od (setting note as done in the hold-end section)
-		// Insert after it: $SW.$fW[note.$pd].$px = false; $SW.$fW[note.$Pd].$px = false;
+		// Find: stfld bool $kD (setting note as done in the hold-end section)
+		// Insert after it: $MaA.$zZ[note.$lD].$JAA = false; $MaA.$zZ[note.$LD].$JAA = false;
 		{
 			int odIdx = -1;
-			// Search from the end of the method for `stfld $od` preceded by `ldc.i4.1`
+			// Search from the end of the method for `stfld $kD` preceded by `ldc.i4.1`
 			for (int i = il.Count - 1; i >= 0; i--)
 			{
 				if (il[i].OpCode == OpCodes.Stfld && FieldMatches(il[i].Operand as IField, fld_od) &&
@@ -480,7 +478,7 @@ internal static class Program
 
 				var c5 = new[]
 				{
-                    // $SW.$fW[note.$pd].$px = false
+                    // $MaA.$zZ[note.$lD].$JAA = false
                     OpCodes.Ldarg_0.ToInstruction(),
 					new Instruction(OpCodes.Ldflda, fld_SW),
 					new Instruction(OpCodes.Ldfld, fld_fW),
@@ -490,7 +488,7 @@ internal static class Program
 					OpCodes.Ldc_I4_0.ToInstruction(),
 					new Instruction(OpCodes.Stfld, fld_px),
 
-                    // $SW.$fW[note.$Pd].$px = false
+                    // $MaA.$zZ[note.$LD].$JAA = false
                     OpCodes.Ldarg_0.ToInstruction(),
 					new Instruction(OpCodes.Ldflda, fld_SW),
 					new Instruction(OpCodes.Ldfld, fld_fW),
@@ -504,11 +502,11 @@ internal static class Program
 				for (int j = 0; j < c5.Length; j++)
 					il.Insert(insertAt + j, c5[j]);
 
-				Console.WriteLine($"  [C5] Glow-off injected after stfld $od at index {insertAt} (+{c5.Length})");
+				Console.WriteLine($"  [C5] Glow-off injected after stfld $kD at index {insertAt} (+{c5.Length})");
 			}
 			else
 			{
-				Console.WriteLine("  [C5] WARNING: stfld $od not found for glow-off");
+				Console.WriteLine("  [C5] WARNING: stfld $kD not found for glow-off");
 			}
 		}
 
@@ -521,30 +519,19 @@ internal static class Program
 	// ═══════════════════════════════════════════════════════
 	static int FindFirstMathAbsInTapSection(IList<Instruction> il, IMethod mathAbs)
 	{
-		// In $St, the Tap head judgment uses Math.Abs(num3) → num4.
-		// Pattern: after the note type check for $GD (ldc.i4.1) or $hD (ldc.i4.2)
-		// with $FlA check, find the first call Math.Abs followed by stloc.s
-		bool inTapSection = false;
 		for (int i = 0; i < il.Count - 1; i++)
 		{
-			// Detect entry into tap/hold judgment section:
-			// looking for: ldarg.2; ldfld $Id; ldc.i4.1; beq (this is the GD / tap note check)
-			if (il[i].OpCode == OpCodes.Ldc_I4_1 &&
-				i >= 2 &&
-				il[i - 1].OpCode == OpCodes.Ldfld &&
-				FieldNameMatches(il[i - 1].Operand as IField, FLD_Id) &&
-				(il[i + 1].OpCode == OpCodes.Beq_S || il[i + 1].OpCode == OpCodes.Beq))
-			{
-				inTapSection = true;
-			}
-
-			if (inTapSection &&
-				il[i].OpCode == OpCodes.Call &&
+			if (il[i].OpCode == OpCodes.Call &&
 				IsMathAbs(il[i].Operand as IMethod) &&
-				i + 1 < il.Count &&
-				(il[i + 1].OpCode == OpCodes.Stloc_S || il[i + 1].OpCode == OpCodes.Stloc))
+				i + 1 < il.Count)
 			{
-				return i;
+				var x = il[i + 1].OpCode;
+				if (x == OpCodes.Stloc_S || x == OpCodes.Stloc ||
+					x == OpCodes.Stloc_0 || x == OpCodes.Stloc_1 ||
+					x == OpCodes.Stloc_2 || x == OpCodes.Stloc_3)
+				{
+					return i;
+				}
 			}
 		}
 		return -1;
@@ -555,7 +542,7 @@ internal static class Program
 	// ═══════════════════════════════════════════════════════
 	static IMethod? FindExistingMathAbs(TypeDef adClass)
 	{
-		// Search all methods in $ad for an existing call to System.Math::Abs(float64)
+		// Search all methods in $Sd for an existing call to System.Math::Abs(float64)
 		foreach (var method in adClass.Methods)
 		{
 			if (method.Body == null) continue;
